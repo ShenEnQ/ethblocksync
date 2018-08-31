@@ -241,23 +241,30 @@ async function getDecimal(contract_addr, tx_hash, decimail_error_file) {
                         if (err2) {
                             console.log('get decimal error:   ' + contract_addr);
                             logToFile("18#" + contract_addr + "#" + tx_hash, decimail_error_file);
+                            decimalMap[contract_addr] = '18';
                             resolve('18');
+                        } else {
+                            decimalMap[contract_addr] = dec2;
+                            resolve(dec2);
                         }
-                        decimalMap[contract_addr] = dec2;
-                        resolve(dec2);
+
                     });
+                } else {
+                    decimalMap[contract_addr] = dec;
+                    resolve(dec)
                 }
-                decimalMap[contract_addr] = dec;
-                resolve(dec);
+                ;
             });
         } catch (e) {
             console.log("decimal out error: " + tx_hash, e);
             //reject('18');
+            decimalMap[contract_addr] = '18';
             logToFile("18#out--" + contract_addr + "#" + tx_hash, decimail_error_file);
             resolve('18');
         }
     });
     if (dec_res == undefined) {
+        decimalMap[contract_addr] = '18';
         return '18';
     }
     return dec_res;
