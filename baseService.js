@@ -24,7 +24,7 @@ exports.logToFile = logToFile;
 exports.getBlockHeight = getBlockHeight;
 exports.getBlock = getBlock;
 exports.loadTaskRecord = loadTaskRecord;
-
+exports.clearFile = clearFile;
 
 
 
@@ -275,6 +275,14 @@ async function getDecimal(contract_addr, tx_hash, decimail_error_file) {
 //append one line to file
 function logToFile(data, fileName) {
     fs.writeFile(fileName, data + '\n', { flag: 'a' }, function (err) {
+        if (err) {
+            console.log('log to file error', err);
+        }
+    });
+}
+
+function clearFile(fileName) {
+    fs.writeFile(fileName, '', { flag: 'w' }, function (err) {
         if (err) {
             console.log('log to file error', err);
         }

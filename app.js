@@ -12,6 +12,8 @@ var schedule = require('node-schedule');
 
 var decimail_error_file = 'decimal_err.log';
 var event_decimail_error_file = 'event_decimal_err.log';
+let configFile = './config.json';
+
 var [provider, web3] = baseService.createNewProvider();
 
 
@@ -85,9 +87,12 @@ async function main() {
     
 //}
 
-async function locateYesterdayEndBlockNumber() {
+async function locateYesterdayEndBlockNumber(specified_date) {
     let currentBlockNum = await baseService.getBlockHeight();
     let now = new Date();
+    if (specified_date) {
+        now = new Date(specified_date);
+    }
     now.setHours(0, 0, 0, 0);
     let endTimestamp = now.getTime() / 1000;
     let startTimestamp = endTimestamp - 24 * 3600;
@@ -115,13 +120,21 @@ async function locateYesterdayEndBlockNumber() {
     return [startTimestamp, endTimestamp, currentBlockNum];
 }
 
-async function schduleTaskNew(cronRule) {
+
+//Download yesterday's block
+async function schduleTaskNew(cronRule, specifyDate) {
+    let configSource = fs.readFileSync(configFile).toString().trim();
+    let config = JSON.parse(configSource);
+    let needClear = config.isRunning;
+    config.isRunning = true;
+    fs.writeFileSync(configFile, JSON.stringify(config));
+
     //must load dictionary first
     await baseService.loadTokenContractDict('./addressInfo.txt');
-    console.log('==============Schedule Task Created !!!===================');
+    console.log('==============Schedule Task Created===================');
     schedule.scheduleJob(cronRule, async function () {//
         //let recordArray = await baseService.loadTaskRecord('./taskrecord.txt');
-        let [startTimestamp, endTimestamp, currentBlockNum] = await locateYesterdayEndBlockNumber();
+        let [startTimestamp, endTimestamp, currentBlockNum] = await locateYesterdayEndBlockNumber(specifyDate);
 
         let begin = new Date().getTime();
         let startBlock = 0;
@@ -129,7 +142,10 @@ async function schduleTaskNew(cronRule) {
         console.log('schdule task will start: ' + startTimestamp + ' - ' + endTimestamp + ' -- ' + currentBlockNum);
         let nowDate = new Date(startTimestamp*1000).toLocaleDateString();
         let logFileName = 'schdule-' + nowDate + '.txt';
-        
+
+        if (needClear) {
+            baseService.clearFile(logFileName);
+        }
         while (true) {
             let block = await baseService.getBlock(currentBlockNum);
             if (!block) {
@@ -158,6 +174,10 @@ async function schduleTaskNew(cronRule) {
             currentBlockNum-=1;
         }
         await baseService.sleep(10);
+
+        let config = JSON.parse(fs.readFileSync(configFile).toString().trim());
+        config.isRunning = false;
+        fs.writeFileSync(configFile, JSON.stringify(config));
 
         baseService.logToFile(nowDate + "###" + currentBlockNum + " - " + startBlock, './taskrecord.txt');
         let end = new Date().getTime();
