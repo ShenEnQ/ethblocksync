@@ -294,16 +294,24 @@ function clearFile(fileName) {
 
 
 function getBlockHeight() {
-    return new Promise(resolve => {
-        web3.eth.getBlock('latest', function (error, block) {
-            if (error) {
-                provider, web3 = createNewProvider();
-            }
-            else {
-                console.log('block#=' + block.number);
-                resolve(block.number);
-            }
-        });
+    return new Promise((resolve, reject) => {
+        try {
+            web3.eth.getBlock('latest', function (error, block) {
+            
+                if (error) {
+                    provider, web3 = createNewProvider();
+                }
+                else {
+                    console.log('block#=' + block.number);
+                    resolve(block.number);
+                }
+            
+            });
+        } catch (e) {
+            provider, web3 = createNewProvider();
+            console.error('!!!!!!!get block height error:' + e);
+            resolve(-1);
+        }
     })
 }
 

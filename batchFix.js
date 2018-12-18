@@ -10,7 +10,7 @@ let needFixDir = './finished/';
 //store data-files that has been fixed 
 let fixDoneDir = './fixed/';
 //this file save all the fixed files' name
-let fixFileNameCache = 'fixed.txt'
+let fixFileNameCache = '../conf/fixed.txt'
 
 async function fix(fileName,targetFileName) {
     

@@ -3,6 +3,7 @@ var Web3 = require("web3");
 var BigNumber = require('bignumber.js');
 var _ = require("underscore")._;
 let fs = require('fs');
+const path = require('path');
 let httpRequest = require('request');
 
 var baseService = require('./baseService');
@@ -12,7 +13,10 @@ var schedule = require('node-schedule');
 
 var decimail_error_file = 'decimal_err.log';
 var event_decimail_error_file = 'event_decimal_err.log';
-let configFile = './config.json';
+let configFile = 'conf/config.json';
+let taskRecordPath = 'conf/taskrecord.txt';
+let addressInfoPath = 'conf/addressInfo.txt';
+let timeTaskPath = 'conf/timetask.txt';
 
 var [provider, web3] = baseService.createNewProvider();
 
@@ -22,13 +26,16 @@ var [provider, web3] = baseService.createNewProvider();
 //test();
 //schduleTask();
 if (require.main === module) {
-    main();
+    //main();
     //schduleTask();
+    
+    //locateEndBlockNumber(new Date(), 3600);
+    timeTask("*/5 * * * *", 300,true);
 }
 
 async function test() {
     //must load dictionary first
-    await baseService.loadTokenContractDict('./addressInfo.txt');
+    await baseService.loadTokenContractDict( addressInfoPath);
     let blockHigh = await baseService.getBlockHeight();
     let block = await baseService.getBlock(5904575);
     if (block) {
@@ -46,7 +53,7 @@ async function test() {
 //Start the task manually
 async function main() {
     //must load dictionary first
-    await baseService.loadTokenContractDict('./addressInfo.txt');
+    await baseService.loadTokenContractDict(addressInfoPath);
     let startBlock = 6075340;
     let total = 100000;
     let blockStep = 10000;
@@ -62,129 +69,7 @@ async function main() {
     }
 }
 
-////Start the task regularly every day
-//async function schduleTask(cronRule) {
-//    //must load dictionary first
-//    await baseService.loadTokenContractDict('./addressInfo.txt');
-//    console.log('==============Schedule Task Created !!!===================');
-//    schedule.scheduleJob(cronRule, async function () {//
-//        let recordArray = await baseService.loadTaskRecord('./taskrecord.txt');
-//        let endBlock = await baseService.getBlockHeight();
-//        let startBlock = endBlock - 10000;
-//        if (recordArray.length > 0) {
-//            startBlock = parseInt(recordArray.pop());
-//        }
-//        let begin = new Date().getTime();
-//        console.log('schdule task will start: ' + startBlock + ' - ' + endBlock);
 
-//        await batchRun(startBlock, endBlock - startBlock, 10000, 0,true);
-//        await baseService.sleep(10);
-
-//        baseService.logToFile(endBlock, './taskrecord.txt');
-//        let end = new Date().getTime();
-//        console.log('schdule task finish: ' + startBlock + ' - ' + endBlock + ', use time:' + (end - begin) / 1000 / 60 + ' min');
-//    });
-    
-//}
-
-async function locateYesterdayEndBlockNumber(specified_date) {
-    let currentBlockNum = await baseService.getBlockHeight();
-    let now = new Date();
-    if (specified_date) {
-        now = new Date(specified_date);
-    }
-    now.setHours(0, 0, 0, 0);
-    let endTimestamp = now.getTime() / 1000;
-    let startTimestamp = endTimestamp - 24 * 3600;
-    let searchStep = 50;//Do not initialize to 1 
-
-    while (true) {
-        let block = await baseService.getBlock(currentBlockNum);
-
-        if (block.timestamp < endTimestamp) {
-            if (searchStep == 1) {
-                currentBlockNum += 1;
-                break;
-            }
-
-            currentBlockNum += searchStep;
-            searchStep = 1;
-            continue;
-            
-        } else {
-            let curFormatDate = new Date(block.timestamp * 1000).toLocaleString();
-            console.log('step:' + searchStep + '================   jump block : ' + currentBlockNum + ' -- ' + curFormatDate);
-            currentBlockNum -= searchStep;
-        }
-    }
-    return [startTimestamp, endTimestamp, currentBlockNum];
-}
-
-
-//Download yesterday's block
-async function schduleTaskNew(cronRule, specifyDate) {
-    let configSource = fs.readFileSync(configFile).toString().trim();
-    let config = JSON.parse(configSource);
-    let needClear = config.isRunning;
-    config.isRunning = true;
-    fs.writeFileSync(configFile, JSON.stringify(config));
-
-    //must load dictionary first
-    await baseService.loadTokenContractDict('./addressInfo.txt');
-    console.log('==============Schedule Task Created===================');
-    schedule.scheduleJob(cronRule, async function () {//
-        //let recordArray = await baseService.loadTaskRecord('./taskrecord.txt');
-        let [startTimestamp, endTimestamp, currentBlockNum] = await locateYesterdayEndBlockNumber(specifyDate);
-
-        let begin = new Date().getTime();
-        let startBlock = 0;
-
-        console.log('schdule task will start: ' + startTimestamp + ' - ' + endTimestamp + ' -- ' + currentBlockNum);
-        let nowDate = new Date(startTimestamp*1000).toLocaleDateString();
-        let logFileName = 'schdule-' + nowDate + '.txt';
-
-        if (needClear) {
-            baseService.clearFile(logFileName);
-        }
-        while (true) {
-            let block = await baseService.getBlock(currentBlockNum);
-            if (!block) {
-                baseService.sleep(5);
-                console.log('get block failed,try again later....: ' + currentBlockNum);
-                continue;
-            }
-            let curFormatDate = new Date(block.timestamp * 1000).toLocaleString();
-            if (block.timestamp >= startTimestamp && block.timestamp < endTimestamp) {
-                if (startBlock == 0) {
-                    startBlock = currentBlockNum;
-                } 
-                let transactions = block.transactions;
-                if (transactions.length > 0) {
-                    for (let j = 0; j < transactions.length; j++) {
-                        processTransaction(transactions[j], 0, logFileName, 0, block);
-                    }
-                    //await sleep(0.05);
-                }
-                console.log("#block " + currentBlockNum + " over:" + transactions.length + ' -- ' + curFormatDate);
-            } else if (block.timestamp < startTimestamp) {
-                break;
-            } else {
-                console.log('================   jump block : ' + currentBlockNum + ' -- ' + curFormatDate);
-            }
-            currentBlockNum-=1;
-        }
-        await baseService.sleep(10);
-
-        let config = JSON.parse(fs.readFileSync(configFile).toString().trim());
-        config.isRunning = false;
-        fs.writeFileSync(configFile, JSON.stringify(config));
-
-        baseService.logToFile(nowDate + "###" + currentBlockNum + " - " + startBlock, './taskrecord.txt');
-        let end = new Date().getTime();
-        console.log('schdule task finish: ' + startBlock + ' - ' + currentBlockNum + ', use time:' + (end - begin) / 1000 / 60 + ' min');
-    });
-
-}
 
 
 async function batchRun(startBlock, total,blockStep, thNumber,isSchdule) {
@@ -421,4 +306,223 @@ async function processTransaction(txHash, failTimes,logFileName,threadNumber,blo
     }
 }
 
+
+async function locateYesterdayEndBlockNumber(specified_date) {
+    let currentBlockNum = await baseService.getBlockHeight();
+    let now = new Date();
+    if (specified_date) {
+        now = new Date(specified_date);
+    }
+    now.setHours(0, 0, 0, 0);
+    let endTimestamp = now.getTime() / 1000;
+    let startTimestamp = endTimestamp - 24 * 3600;
+    let searchStep = 50;//Do not initialize to 1 
+
+    while (true) {
+        let block = await baseService.getBlock(currentBlockNum);
+
+        if (block.timestamp < endTimestamp) {
+            if (searchStep == 1) {
+                break;
+            }
+
+            currentBlockNum += searchStep;
+            searchStep = 1;
+            continue;
+
+        } else {
+            let curFormatDate = new Date(block.timestamp * 1000).toLocaleString();
+            console.log('step:' + searchStep + '================   jump block : ' + currentBlockNum + ' -- ' + curFormatDate);
+            currentBlockNum -= searchStep;
+        }
+    }
+    return [startTimestamp, endTimestamp, currentBlockNum];
+}
+
+
+/*
+*  cronRule(string)
+*  intervalSeconds(int): Synchronize from the block before the current number of seconds
+*  beginFromLast(bool):Whether it is from the position where the last synchronization ended, if false, intervalSeconds effect.
+*
+*/
+async function timeTask(cronRule, intervalSeconds, beginFromLast) {
+    await baseService.loadTokenContractDict(addressInfoPath);
+    console.log('==============Time Task Created===================');
+    schedule.scheduleJob(cronRule, async function () {
+        let begin = new Date().getTime();
+        let nowTime = new Date();
+         //update config first, update the flag
+        let config = JSON.parse(fs.readFileSync(configFile).toString().trim());
+        let needClear = config.timeTask;
+        config.timeTask = true;
+        fs.writeFileSync(configFile, JSON.stringify(config));
+
+        let [startDate, endDate, startBlock, endBlock] = await locateEndBlockNumber(nowTime, intervalSeconds);
+        let traskRecordArray = await baseService.loadTaskRecord(timeTaskPath);
+        if (traskRecordArray && traskRecordArray.length > 0 && beginFromLast) {
+            let arry = traskRecordArray.pop().split('#');
+            startBlock = parseInt(arry[3]);
+        }
+        console.log('schdule task will start: ', startDate.toLocaleString(), '###', endDate.toLocaleString(), '###', startBlock, '###', endBlock);
+        let dirName = new Date().toLocaleDateString();
+        fs.existsSync(dirName) == false && fs.mkdirSync(dirName);
+        let dataFile = dirName + '/task-' + new Date().getHours()+ '-' + startBlock + '-' + endBlock + '.txt';
+        if (needClear) {
+            baseService.clearFile(dataFile);
+        }
+        let currentBlockNum = startBlock;
+        while (true) {
+            if (currentBlockNum >= endBlock) {
+                break;
+            }
+            let block = await baseService.getBlock(currentBlockNum);
+            if (!block) {
+                baseService.sleep(5);
+                console.log('get block failed,try again later....: ' + currentBlockNum);
+                continue;
+            }
+            let blockFormatDate = new Date(block.timestamp * 1000).toLocaleString();
+            let transactions = block.transactions;
+            if (transactions.length > 0) {
+                for (let j = 0; j < transactions.length; j++) {
+                    processTransaction(transactions[j], 0, dataFile, 0, block);
+                }
+            }
+            console.log("#block " + currentBlockNum + " over:" + transactions.length + ' -- ' + blockFormatDate);
+            currentBlockNum += 1;
+        }
+        baseService.sleep(10);
+        config = JSON.parse(fs.readFileSync(configFile).toString().trim());
+        config.timeTask = false;
+        fs.writeFileSync(configFile, JSON.stringify(config));
+
+        baseService.logToFile(startDate.toLocaleString() + "#" + endDate.toLocaleString() + "#" + startBlock + "#" + endBlock, timeTaskPath);
+        let end = new Date().getTime();
+        console.log('schdule task finish: ' + startBlock + ' - ' + currentBlockNum + ', use time:' + (end - begin) / 1000 / 60 + ' min');
+    });
+}
+
+
+//Download yesterday's block
+async function schduleTaskNew(cronRule, specifyDate) {
+    //must load dictionary first
+    await baseService.loadTokenContractDict(addressInfoPath);
+    console.log('==============Schedule Task Created===================');
+    schedule.scheduleJob(cronRule, async function () {//
+        let configSource = fs.readFileSync(configFile).toString().trim();
+        let config = JSON.parse(configSource);
+        let needClear = config.isRunning;
+        config.isRunning = true;
+        fs.writeFileSync(configFile, JSON.stringify(config));
+
+        let [startTimestamp, endTimestamp, currentBlockNum] = await locateYesterdayEndBlockNumber(specifyDate);
+
+        let begin = new Date().getTime();
+        let startBlock = 0;
+
+        console.log('=========================schdule task will start: ' + startTimestamp + ' - ' + endTimestamp + ' -- ' + currentBlockNum);
+        let nowDate = new Date(startTimestamp * 1000).toLocaleDateString();
+        let logFileName = 'schdule-' + nowDate + '.txt';
+
+        if (needClear) {
+            baseService.clearFile(logFileName);
+        }
+        while (true) {
+            let block = await baseService.getBlock(currentBlockNum);
+            if (!block) {
+                baseService.sleep(5);
+                console.log('get block failed,try again later....: ' + currentBlockNum);
+                continue;
+            }
+            let curFormatDate = new Date(block.timestamp * 1000).toLocaleString();
+            if (block.timestamp >= startTimestamp && block.timestamp < endTimestamp) {
+                if (startBlock == 0) {
+                    startBlock = currentBlockNum;
+                }
+                let transactions = block.transactions;
+                if (transactions.length > 0) {
+                    for (let j = 0; j < transactions.length; j++) {
+                        processTransaction(transactions[j], 0, logFileName, 0, block);
+                    }
+                    //await sleep(0.05);
+                }
+                console.log("#block " + currentBlockNum + " over:" + transactions.length + ' -- ' + curFormatDate);
+            } else if (block.timestamp < startTimestamp) {
+                break;
+            } else {
+                console.log('================out   jump block : ' + currentBlockNum + ' -- ' + curFormatDate);
+            }
+            currentBlockNum -= 1;
+        }
+        await baseService.sleep(10);
+
+        config = JSON.parse(fs.readFileSync(configFile).toString().trim());
+        config.isRunning = false;
+        fs.writeFileSync(configFile, JSON.stringify(config));
+
+        baseService.logToFile(nowDate + "###" + currentBlockNum + " - " + startBlock, taskRecordPath);
+        let end = new Date().getTime();
+        console.log('schdule task finish: ' + startBlock + ' - ' + currentBlockNum + ', use time:' + (end - begin) / 1000 / 60 + ' min');
+    });
+
+}
+
+
+async function locateEndBlockNumber(now, intervalSeconds) {
+    let startDate = new Date(now.getTime() - intervalSeconds * 1000);
+    console.log('locate start:', startDate.toLocaleString(), ' ------  ', now.toLocaleString() ); 
+    let currentBlockNum = -1;
+    while (currentBlockNum == -1) {
+        currentBlockNum = await baseService.getBlockHeight();
+        baseService.sleep(5);
+    }
+    await baseService.sleep(3);
+    let endTimestamp = now.getTime() / 1000;
+    let startTimestamp = endTimestamp - intervalSeconds;
+    let searchStep = 10;//Do not initialize to 1 
+
+    let startBlock = 0;
+    let endBlock = 0;
+    let startFlag = true;
+    let endFlag = true;
+    while (true) {
+        let block = await baseService.getBlock(currentBlockNum);
+        if (!block) {
+            console.log(currentBlockNum + ' block is null');
+            currentBlockNum -= 1;
+            continue;
+        }
+
+        if (block.timestamp < endTimestamp && endFlag) {
+            if (searchStep == 1) {
+                endBlock = currentBlockNum;
+                endFlag = false;
+                searchStep = 10;
+                continue;
+            }
+            currentBlockNum += searchStep;
+            searchStep = 1;
+            continue;
+
+        } else if (block.timestamp < startTimestamp && startFlag) {
+            if (searchStep == 1) {
+                startBlock = currentBlockNum;
+                startFlag = false;
+                break;
+            }
+            currentBlockNum += searchStep;
+            searchStep = 1;
+            continue;
+        } else {
+            let curFormatDate = new Date(block.timestamp * 1000).toLocaleString();
+            console.log('step:' + searchStep + '================   jump block : ' + currentBlockNum + ' -- ' + curFormatDate);
+            currentBlockNum -= searchStep;
+        }
+    }
+    console.log('locate result :', startTimestamp, endTimestamp, startBlock, endBlock);
+    return [startDate, now, startBlock, endBlock];
+}
+
 exports.schduleTaskNew = schduleTaskNew;
+exports.timeTask = timeTask;
